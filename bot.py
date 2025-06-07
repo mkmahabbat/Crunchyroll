@@ -1,119 +1,105 @@
-import logging
+import telebot
 import random
 import time
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
+from datetime import datetime, timedelta
 
-# --- Configuration ---
-TOKEN = "7707538907:AAGuf4WXxDOHfe9FV00ReTv817xU08smaaw"
+BOT_TOKEN = '7707538907:AAGuf4WXxDOHfe9FV00ReTv817xU08smaaw'
+bot = telebot.TeleBot(BOT_TOKEN)
+
 ADMIN_ID = 6430066760
-REQUIRED_CHANNELS = [
-    "https://t.me/MKClubOfficial",
-    "https://t.me/+ez_75uB_qYoyYjQ1",
-    "https://t.me/FreeSourceCodeHub"
+CHANNELS = ['@MKClubOfficial', '@FreeSourceCodeHub', '@ez_75uB_qYoyYjQ1']
+
+accounts = [
+    "leranthonychang@icloud.com : E01$t10#$1997 | United States",
+    "iven.estudiante@gmail.com : 0408Dayana | United States",
+    # (add the rest here)
 ]
 
-# --- Data Storage ---
 last_generated = {}
 secret_codes = {}
+used_codes = {}
 
-# --- Logging ---
-logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
-
-# --- Start Command ---
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    buttons = [[InlineKeyboardButton("📢 Join Channel", url=url)] for url in REQUIRED_CHANNELS]
-    buttons.append([InlineKeyboardButton("🎁 Generate Account", callback_data="generate")])
-    keyboard = InlineKeyboardMarkup(buttons)
-
-    await update.message.reply_text(
-        f"👋 Hello, {user.first_name}!\n\n"
-        "✅ Please join all the channels below to continue.\n"
-        "🎉 Once done, tap the button below to get your Crunchyroll account.",
-        reply_markup=keyboard
-    )
-
-# --- Generate Button ---
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    user_id = query.from_user.id
-    await query.answer()
-
-    if query.data == "generate":
-        now = time.time()
-        if user_id in last_generated and now - last_generated[user_id] < 86400:
-            await query.message.reply_text("⏳ You can only generate one account every 24 hours. Please try again later.")
-            return
+def is_joined(user_id):
+    for ch in CHANNELS:
         try:
-            with open("accounts.txt", "r") as f:
-                accounts = [line.strip() for line in f if line.strip()]
-            if not accounts:
-                await query.message.reply_text("❌ No accounts available.")
-                return
-            account = accounts.pop(0)
-            with open("accounts.txt", "w") as f:
-                f.write("\\n".join(accounts))
-            last_generated[user_id] = now
-            await query.message.reply_text(f"🎊 Your Crunchyroll account:\n\n`{account}`", parse_mode="Markdown")
-        except FileNotFoundError:
-            await query.message.reply_text("❌ accounts.txt not found.")
+            status = bot.get_chat_member(ch, user_id).status
+            if status not in ['member', 'administrator', 'creator']:
+                return False
+        except:
+            return False
+    return True
 
-# --- Admin Secret Code Generator ---
-async def gensecretcode(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID:
-        await update.message.reply_text("❌ You are not authorized to use this command.")
-        return
-    code = ''.join(random.choices("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", k=8))
-    secret_codes[code] = {"used": False, "timestamp": 0, "user": None}
-    await update.message.reply_text(f"🔐 Generated Secret Code:\n\n`{code}`", parse_mode="Markdown")
-
-# --- User Secret Code Command ---
-async def secretcode_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🔐 Please send your secret code now.")
-
-# --- Handle Text Messages (Codes) ---
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    code = update.message.text.strip().upper()
-    now = time.time()
-
-    if code in secret_codes:
-        entry = secret_codes[code]
-        if entry["used"]:
-            await update.message.reply_text("❌ This secret code has already been used.")
-            return
-        if entry["user"] and now - entry["timestamp"] < 3600:
-            await update.message.reply_text("⏳ Please wait 1 hour before using another code.")
-            return
-        try:
-            with open("accounts.txt", "r") as f:
-                accounts = [line.strip() for line in f if line.strip()]
-            if not accounts:
-                await update.message.reply_text("❌ No accounts available.")
-                return
-            account = accounts.pop(0)
-            with open("accounts.txt", "w") as f:
-                f.write("\\n".join(accounts))
-            entry["used"] = True
-            entry["timestamp"] = now
-            entry["user"] = user_id
-            await update.message.reply_text(f"🎉 Your Crunchyroll account:\n\n`{account}`", parse_mode="Markdown")
-        except FileNotFoundError:
-            await update.message.reply_text("❌ accounts.txt not found.")
+@bot.message_handler(commands=['start'])
+def start(message):
+    if not is_joined(message.from_user.id):
+        join_text = "🛑 Please join all channels first:\n"
+        for ch in CHANNELS:
+            join_text += f"➡️ {ch}\n"
+        join_text += "\nThen press /start again."
+        bot.send_message(message.chat.id, join_text)
     else:
-        await update.message.reply_text("❌ Invalid secret code.")
+        markup = telebot.types.InlineKeyboardMarkup()
+        markup.add(telebot.types.InlineKeyboardButton("🎁 Generate", callback_data="generate"))
+        bot.send_message(message.chat.id, "🎉 Welcome! Click below to get your Crunchyroll account.", reply_markup=markup)
 
-# --- Main Entry ---
-def main():
-    app = Application.builder().token(TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("gensecretcode", gensecretcode))
-    app.add_handler(CommandHandler("Secretcode", secretcode_command))
-    app.add_handler(CallbackQueryHandler(button_handler))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    print("🤖 Bot is running...")
-    app.run_polling()
+@bot.callback_query_handler(func=lambda call: call.data == "generate")
+def generate_account(call):
+    user_id = call.from_user.id
+    if not is_joined(user_id):
+        bot.answer_callback_query(call.id, "❗ Please join all channels first.")
+        return
 
-if __name__ == "__main__":
-    main()
+    now = datetime.now()
+    if user_id in last_generated and now < last_generated[user_id]:
+        remaining = last_generated[user_id] - now
+        bot.send_message(call.message.chat.id, f"⏳ Please wait {remaining.seconds//3600}h {(remaining.seconds//60)%60}m before generating again.")
+        return
+
+    if not accounts:
+        bot.send_message(call.message.chat.id, "⏳ How long will it take time.")
+        return
+
+    account = accounts.pop(0)
+    last_generated[user_id] = now + timedelta(hours=24)
+    bot.send_message(call.message.chat.id, f"🎉 Your Crunchyroll Account:\n\n`{account}`", parse_mode="Markdown")
+
+@bot.message_handler(commands=['gensecretcode'])
+def gen_secret_code(message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    code = ''.join(random.choices('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', k=8))
+    secret_codes[code] = time.time()
+    bot.send_message(message.chat.id, f"🔐 Secret Code: `{code}`", parse_mode="Markdown")
+
+@bot.message_handler(commands=['Secretcode'])
+def ask_code(message):
+    if not is_joined(message.from_user.id):
+        bot.send_message(message.chat.id, "🛑 Please join all channels before using this feature.")
+        return
+    sent = bot.send_message(message.chat.id, "✏️ Send your secret code:")
+    bot.register_next_step_handler(sent, process_code)
+
+def process_code(message):
+    user_id = message.from_user.id
+    code = message.text.strip().upper()
+
+    if code in used_codes:
+        bot.send_message(message.chat.id, "❌ This code has already been used.")
+        return
+
+    if code not in secret_codes:
+        bot.send_message(message.chat.id, "❌ Invalid code.")
+        return
+
+    now = time.time()
+    if now - secret_codes[code] < 3600:
+        if not accounts:
+            bot.send_message(message.chat.id, "⏳ How long will it take time.")
+            return
+        account = accounts.pop(0)
+        used_codes[code] = True
+        bot.send_message(message.chat.id, f"✅ Here's your Crunchyroll account:\n\n`{account}`", parse_mode="Markdown")
+    else:
+        bot.send_message(message.chat.id, "⏳ This code has expired.")
+
+bot.polling()
